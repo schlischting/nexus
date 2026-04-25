@@ -1,0 +1,33 @@
+# Nexus: Dependências Python para Ingestão de Dados
+# Data: 2026-04-24
+
+# Core Data Processing
+pandas==2.2.0
+numpy==1.26.4
+
+# Database & API
+supabase==2.4.0
+psycopg2-binary==2.9.9
+
+# Environment & Configuration
+python-dotenv==1.0.0
+
+# Validation & Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+
+# Logging & Monitoring
+python-json-logger==2.0.7
+
+# Optional: Excel Support
+openpyxl==3.1.2
+xlrd==2.0.1
+
+# Optional: Async Processing (futuro)
+asyncio-contextmanager==1.0.0
+aiohttp==3.9.1
+
+# Code Quality
+black==23.12.1
+flake8==6.1.0
+mypy==1.7.1
