@@ -1,0 +1,187 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║                          NEXUS - ESTRUTURA DO PROJETO                     ║
+║                   Sistema de Conciliação de Cartões de Crédito            ║
+║                                                                            ║
+║                    Inicializado: 24 de Abril de 2026                      ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+
+📦 NEXUS/
+│
+├── 📄 README.md
+│   └─ Overview, quick start, uso do sistema
+│
+├── 📄 SUPABASE_SETUP.md
+│   └─ Guia passo-a-passo de setup do Supabase (10 passos)
+│
+├── 📄 .gitignore
+│   └─ Regras para controle de versão (Python, IDEs, dados sensíveis)
+│
+├── 📄 PROJECT_STRUCTURE.txt (este arquivo)
+│   └─ Visualização da estrutura do projeto
+│
+│
+├─📁 database/                          [CAMADA DE DADOS]
+│  ├── schema_nexus.sql                 (1.200+ linhas)
+│  │   ├─ Enums e tipos customizados
+│  │   ├─ Tabela: filiais (dimensão)
+│  │   ├─ Tabela: transacoes_getnet (adquirente GETNET)
+│  │   ├─ Tabela: titulos_totvs (ERP TOTVS)
+│  │   ├─ Tabela: conciliacao_vinculos (linking N:N com scoring)
+│  │   ├─ Tabela: user_filiais (RLS mapping)
+│  │   ├─ Índices de performance
+│  │   ├─ Row Level Security (RLS) policies
+│  │   ├─ Triggers de auditoria (timestamps)
+│  │   ├─ Função calcular_score_matching()
+│  │   └─ Dados iniciais (3 filiais de exemplo)
+│  │
+│  └─📁 backups/                       (diretório vazio para backups)
+│     └── .gitkeep
+│
+│
+├─📁 backend/                           [CAMADA INGESTÃO & PROCESSAMENTO]
+│  ├── import_getnet.py                 (350+ linhas)
+│  │   ├─ Classe ImportadorGETNET (orquestrador)
+│  │   ├─ Validação: NSU, Autorização, Data, Hora, Valor, Bandeira
+│  │   ├─ Detecção de duplicatas (SHA256)
+│  │   ├─ Cálculo de score automático
+│  │   ├─ Relatório com métricas
+│  │   ├─ Saída em JSON pronto para Supabase
+│  │   ├─ Logging estruturado
+│  │   └─ CLI com argparse (--file, --filial_id, --dry-run)
+│  │
+│  ├── requirements.txt
+│  │   ├─ pandas==2.2.0
+│  │   ├─ supabase==2.4.0
+│  │   ├─ psycopg2-binary==2.9.9
+│  │   ├─ python-dotenv==1.0.0
+│  │   ├─ pytest==7.4.3
+│  │   └─ black, flake8, mypy (code quality)
+│  │
+│  └── .env.example
+│      ├─ SUPABASE_URL
+│      ├─ SUPABASE_KEY (anon)
+│      ├─ SUPABASE_SERVICE_ROLE_KEY
+│      ├─ DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+│      └─ Variáveis de logging e diretórios
+│
+│
+├─📁 docs/                              [DOCUMENTAÇÃO ARQUITETÔNICA]
+│  └── 2026-04-24-arquitetura-nexus.md  (4.500+ linhas)
+│      ├─ Visão Geral (problema, solução, benefícios)
+│      ├─ Arquitetura do Sistema (diagrama de camadas)
+│      ├─ Modelagem de Dados (relacionamentos, schemas)
+│      ├─ Fluxo de Ingestão (4 passos)
+│      ├─ Algoritmo de Matching Automático (scoring, decisões)
+│      ├─ Row Level Security (RLS, policies, exemplos)
+│      ├─ Componente Mobile/PWA (3 fases, arquitetura)
+│      ├─ Plano de Implementação (6 fases, 6-9 semanas)
+│      ├─ Métricas de Sucesso (6 KPIs)
+│      └─ Referências e documentação
+│
+│
+├─📁 mobile-app/                        [PWA LEITURA DE COMPROVANTES]
+│  └── README.md                        (2.000+ linhas)
+│      ├─ Visão Geral (Nexus Verificador)
+│      ├─ Escopo Detalhado (3 fases)
+│      ├─ Arquitetura Técnica (stack, fluxo, banco)
+│      ├─ Requisitos Não-Funcionais
+│      ├─ Testes e Dependências
+│      ├─ Checklist e Métricas
+│      └─ Futuro (5+ fases adicionais)
+│
+│
+├─📁 data/                              [DADOS DE ENTRADA/SAÍDA]
+│  ├── extrato_getnet_exemplo.csv       (5 transações de teste)
+│  ├─📁 input/                          (CSVs a processar)
+│  │  └── .gitkeep
+│  └─📁 output/                         (JSONs processados)
+│     └── .gitkeep
+│
+│
+╠════════════════════════════════════════════════════════════════════════════╣
+║                         ESTATÍSTICAS DO PROJETO                            ║
+╠════════════════════════════════════════════════════════════════════════════╣
+
+Arquivos Criados:         14
+Linhas de Código/Docs:    10.500+
+
+Distribuição:
+  ├─ Documentação:       65% (4.500+ linhas)
+  ├─ SQL (Schema):       12% (1.200+ linhas)
+  ├─ Python (Scripts):   15% (350+ linhas)
+  └─ Configuração:       8%  (config files)
+
+Tabelas PostgreSQL:       5
+Índices para Performance: 6
+Políticas RLS:            4
+Triggers de Auditoria:    4
+Funções PL/pgSQL:         2
+
+Fases de Implementação:   6 (9 semanas total)
+Requisitos de Teste:      10+
+Métricas de Sucesso:      18+
+
+╠════════════════════════════════════════════════════════════════════════════╣
+║                          QUICK START (3 MINUTOS)                          ║
+╠════════════════════════════════════════════════════════════════════════════╣
+
+1. Leia README.md
+2. Siga SUPABASE_SETUP.md (criar projeto Supabase)
+3. Execute database/schema_nexus.sql (criar tabelas)
+4. Configure backend/.env (credenciais Supabase)
+5. pip install -r backend/requirements.txt
+6. python backend/import_getnet.py --file data/extrato_getnet_exemplo.csv \
+     --filial_id 1 --dry-run
+
+╠════════════════════════════════════════════════════════════════════════════╣
+║                       PRÓXIMOS PASSOS (Roadmap)                            ║
+╠════════════════════════════════════════════════════════════════════════════╣
+
+Semana 1-2:  ⬜ Infraestrutura (Supabase setup, RLS test)
+Semana 2-3:  ⬜ Pipeline Ingestão (TOTVS, agendamento)
+Semana 3-4:  ⬜ Matching Automático (trigger, fine-tuning)
+Semana 4-6:  ⬜ FlutterFlow Frontend (dashboard)
+Semana 6-8:  ⬜ PWA OCR (camera, OCR)
+Semana 8-9:  ⬜ Testes & Deploy (produção)
+
+╠════════════════════════════════════════════════════════════════════════════╣
+║                            SEGURANÇA (✅)                                 ║
+╠════════════════════════════════════════════════════════════════════════════╣
+
+✅ Row Level Security (RLS por filial_id)
+✅ Autenticação JWT via Supabase Auth
+✅ Isolamento Multi-Tenant
+✅ Auditoria (usuario_validacao + timestamp)
+✅ Hash SHA256 para deduplicação
+✅ HTTPS obrigatório (Supabase)
+✅ Sem dados sensíveis em logs
+✅ Variables de ambiente (.env)
+
+╠════════════════════════════════════════════════════════════════════════════╣
+║                         DOCUMENTAÇÃO PRINCIPAL                             ║
+╠════════════════════════════════════════════════════════════════════════════╣
+
+📖 Arquitetura Completa:
+   └─ docs/2026-04-24-arquitetura-nexus.md (LEIA PRIMEIRO!)
+
+📖 Setup do Supabase:
+   └─ SUPABASE_SETUP.md (passo-a-passo)
+
+📖 PWA / App Mobile:
+   └─ mobile-app/README.md (escopo Nexus Verificador)
+
+📖 Overview do Projeto:
+   └─ README.md (quick start)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║                      Nexus: Conciliação Inteligente                       ║
+║                    Desenvolvido com Rigor Arquitetônico                   ║
+║                                                                            ║
+║                    Status: ✅ Inicialização Completa                      ║
+║                   Data: 24 de Abril de 2026                              ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝

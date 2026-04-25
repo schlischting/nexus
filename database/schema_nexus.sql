@@ -28,23 +28,21 @@ CREATE TABLE IF NOT EXISTS filiais (
 -- Transações GETNET (Adquirente)
 CREATE TABLE IF NOT EXISTS transacoes_getnet (
   transacao_id BIGSERIAL PRIMARY KEY,
-  filial_id INTEGER NOT NULL REFERENCES filiais(filial_id),
+  filial_id INTEGER REFERENCES filiais(filial_id),  -- NULL se não mapeado ainda
+  filial_cnpj VARCHAR(14) NOT NULL,  -- CNPJ da filial (sem formatação, 14 dígitos)
   nsu VARCHAR(20) NOT NULL,  -- Número Sequencial Único
   numero_autorizacao VARCHAR(20) NOT NULL,
   data_transacao DATE NOT NULL,
   hora_transacao TIME NOT NULL,
   valor NUMERIC(15, 2) NOT NULL CHECK (valor > 0),
-  portador_digitos VARCHAR(4) NOT NULL,  -- Últimos 4 dígitos
-  bandeira VARCHAR(50) NOT NULL,  -- Visa, Mastercard, Elo, etc.
-  estabelecimento_codigo VARCHAR(20) NOT NULL,
-  descricao_transacao VARCHAR(255),
-  quantidade_parcelas SMALLINT DEFAULT 1,
-  parcela_atual SMALLINT DEFAULT 1,
+  bandeira VARCHAR(50) NOT NULL,  -- Visa, Mastercard, Elo, Diners, AMEX, Discover
+  codigo_ec VARCHAR(20) NOT NULL,  -- Código de Estabelecimento Comercial
+  tipo_lancamento VARCHAR(50) NOT NULL,  -- 'Vendas', 'Negociações', 'Saldo', etc.
   status status_transacao DEFAULT 'pendente',
-  hash_transacao VARCHAR(64) UNIQUE,  -- Para detect duplicatas
+  hash_transacao VARCHAR(64) UNIQUE,  -- SHA256 para detectar duplicatas
   data_ingesta TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   data_atualizacao TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(filial_id, nsu, numero_autorizacao)
+  UNIQUE(filial_cnpj, nsu, numero_autorizacao, data_transacao)
 );
 
 -- Títulos TOTVS (ERP)
@@ -108,11 +106,14 @@ CREATE TABLE IF NOT EXISTS conciliacao_vinculos (
 -- 4. ÍNDICES PARA PERFORMANCE
 -- ============================================================================
 
-CREATE INDEX idx_transacoes_getnet_filial_data
+CREATE INDEX idx_transacoes_getnet_filial_cnpj_data
+  ON transacoes_getnet(filial_cnpj, data_transacao DESC);
+
+CREATE INDEX idx_transacoes_getnet_filial_id_data
   ON transacoes_getnet(filial_id, data_transacao DESC);
 
-CREATE INDEX idx_transacoes_getnet_nsu
-  ON transacoes_getnet(filial_id, nsu);
+CREATE INDEX idx_transacoes_getnet_cnpj_nsu
+  ON transacoes_getnet(filial_cnpj, nsu);
 
 CREATE INDEX idx_titulos_totvs_filial_data
   ON titulos_totvs(filial_id, data_vencimento DESC);
