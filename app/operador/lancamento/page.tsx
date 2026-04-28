@@ -189,7 +189,7 @@ export default function LancamentoPage() {
                       value={nsuSearch}
                       onChange={(e) => debounceSearch(e.target.value)}
                       disabled={loading}
-                      className="flex-1"
+                      className="flex-1 bg-white text-gray-900 placeholder-gray-500"
                     />
                   </div>
 
@@ -334,12 +334,12 @@ export default function LancamentoPage() {
           {/* Action Buttons */}
           <div className="flex gap-4 mt-12 pt-8 border-t border-gray-200">
             <Button
-              variant="outline"
               onClick={() => {
                 if (step > 1) setStep((step - 1) as Step);
                 else router.back();
               }}
               disabled={loading}
+              className="bg-gray-500 hover:bg-gray-600 text-white"
             >
               {step === 1 ? 'Cancelar' : 'Voltar'}
             </Button>
