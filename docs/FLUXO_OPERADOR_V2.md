@@ -9,6 +9,47 @@ O operador agora tem 3 ações principais no dashboard:
 
 ---
 
+## 🏢 Estrutura: Matriz → Filial → EC → Operador
+
+### Hierarquia Organizacional
+
+```
+CNPJ Matriz: 84.943.067/0001-50
+│
+├── Filial 01 (SC — Lages)
+│   ├── CNPJ Filial: 84.943.067/0019-89 ← CHAVE PRIMÁRIA para RLS
+│   ├── EC GETNET 1: 4566760 (Código de Estabelecimento)
+│   ├── EC GETNET 2: 4566761 (múltiplos ECs se houver)
+│   ├── Operador: operador_sc@minusa.com
+│   │   └── Acesso: APENAS Filial 01 (RLS filtra por filial_cnpj)
+│   └── Dashboard mostra:
+│       ├── Loja: MINUSA FILIAL SC
+│       ├── CNPJ: 84.943.067/0019-89
+│       └── EC: 4566760 • UF: SC
+│
+├── Filial 02 (SP — São Paulo)
+│   ├── CNPJ Filial: 84.943.067/0020-XX
+│   ├── EC GETNET: 4566762
+│   └── ...
+│
+└── ... (39 filiais restantes)
+
+SUPERVISOR (Matriz)
+├── Acesso: TODAS as 41 filiais
+└── Sem RLS filtrando filial_cnpj → vê consolidado
+```
+
+### Regra de Ouro
+
+- **1 Operador ↔ 1 Filial (CNPJ) ↔ 1 ou + ECs GETNET**
+- Operador SÓ VÊ sua filial (filial_cnpj do user_filiais_cnpj)
+- Dashboard mostra: "Loja: MINUSA FILIAL SC | CNPJ: 84.943.067/0019-89 | EC: 4566760"
+- Todas as queries filtram por filial_cnpj do operador autenticado
+- Supervisor vê TODAS as filiais sem filtro
+- Admin vê TUDO + logs de auditoria
+
+---
+
 ## 🎯 Casos de Uso
 
 ### Caso 1: NSU chega antes da NF
@@ -68,6 +109,27 @@ Sequência:
 
 ## 🖥️ Layout do Dashboard V2
 
+### SEÇÃO 0: Header com Informações da Filial
+
+Após o login, o operador vê a filial a que está atribuído:
+
+```
+┌─────────────────────────────────────────┐
+│ NEXUS / Operador                        │
+├─────────────────────────────────────────┤
+│ Loja: MINUSA FILIAL SC                  │
+│ CNPJ: 84.943.067/0019-89                │
+│ EC: 4566760 • UF: SC                    │
+└─────────────────────────────────────────┘
+```
+
+**Componentes:**
+- Loja: nome_filial do banco de dados filiais
+- CNPJ: filial_cnpj formatado (XX.XXX.XXX/XXXX-XX)
+- EC: codigo_ec + uf da filial
+
+Isto garante que o operador sabe exatamente para qual loja está trabalhando.
+
 ### SEÇÃO 1: Quick Actions
 ```
 ┌─────────────────────────────────────────┐
@@ -77,16 +139,31 @@ Sequência:
 └─────────────────────────────────────────┘
 ```
 
-### SEÇÃO 2: Métricas (4 cards)
+### SEÇÃO 2: Métricas (4 cards) — Últimos 30 dias
+
+> **📌 Nota:** Todos os dados mostrados no dashboard são dos últimos 30 dias. Isto garante que o operador vê apenas o que é recente e relevante.
+
 ```
 ┌──────────────────────────────────────────┐
 │ 🔴 NSUs Pendentes   │ 🟡 NSUs Sugeridas │
 │     5               │      2             │
+│ (últimos 30 dias)   │ (últimos 30 dias)  │
 │                     │                    │
 │ 📋 Títulos Pendentes│ ✅ Conciliados    │
 │     8               │     45             │
+│ (últimos 30 dias)   │ (últimos 30 dias)  │
+│                     │ R$ 127.500,00      │
 └──────────────────────────────────────────┘
 ```
+
+**Detalhes dos Cards:**
+
+| Card | Filtro | Descrição |
+|------|--------|-----------|
+| NSUs Pendentes | últimos 30 dias | NSUs sem vínculo ainda, aguardando ação |
+| NSUs Sugeridas | últimos 30 dias | Score 0.75-0.95, aguardando validação supervisor |
+| Títulos Pendentes | últimos 30 dias | NFs sem NSU vinculada, aguardando operador |
+| Conciliados | últimos 30 dias | Vínculos confirmados + valor total em R$ |
 
 ### SEÇÃO 3: Tabs (DataTables)
 
@@ -304,15 +381,56 @@ Result:
 
 ---
 
+## 📊 Filtro de 30 Dias no Dashboard
+
+Todas as métricas e listas do dashboard mostram dados dos **últimos 30 dias**. Isto garante performance e foco no que é recente:
+
+### Queries com Filtro 30 Dias
+
+| Função | Tabela | Filtro | Campo |
+|--------|--------|--------|-------|
+| getNsuPendentes | transacoes_getnet | ≥ 30 dias atrás | data_venda |
+| getNsusComSugestao | conciliacao_vinculos | ≥ 30 dias atrás | criado_em |
+| getTitulosSemNsu | titulos_totvs | ≥ 30 dias atrás | data_vencimento |
+| getUltimasConciliacoes | conciliacao_vinculos | ≥ 30 dias atrás | criado_em |
+
+### Como Funciona
+
+```javascript
+// Exemplo: getNsuPendentes
+const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  .toISOString()
+  .split('T')[0];
+
+const { data } = await supabase
+  .from('transacoes_getnet')
+  .select('*')
+  .gte('data_venda', thirtyDaysAgo)  // ← Filtro 30 dias
+  .eq('filial_cnpj', filialCnpj)
+  .order('data_venda', { ascending: false });
+```
+
+### Por que 30 dias?
+
+- **Performance:** Consultas mais rápidas (menos dados)
+- **Foco:** Operador vê apenas o relevante, recente
+- **Auditoria:** Dados antigos são arquivados, não descartados
+- **Padrão:** 30 dias é SLA típico para conciliação de cartões
+
+Se operador precisa ver dados mais antigos, contatar supervisor (que tem acesso ao histórico completo).
+
+---
+
 ## 🔗 Links de Integração
 
-- **Schema:** `database/schema_nexus.sql`
+- **Schema:** `database/schema_nexus_v3.0.sql`
 - **Queries:** `lib/supabase/queries.ts`
 - **APIs:** `app/api/search/nsu`, `app/api/search/nf`, `app/api/vinculos/calculate-score`
 - **Componentes:** `components/ui/bandeira-badge`, `score-bar`, `dias-badge`
-- **Dashboard:** `app/operador/dashboard/page.tsx` (V2)
+- **Dashboard:** `app/operador/dashboard/page.tsx` (page-v2.tsx)
+- **Fluxo de Negócio:** `docs/FLUXO_NEGOCIO.md`
 
 ---
 
 **Última atualização:** 2026-04-28
-**Versão:** 2.0
+**Versão:** 2.1 (com EC clarifications e 30-day metrics)

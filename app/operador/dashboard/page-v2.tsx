@@ -36,11 +36,13 @@ interface Metrics {
   nsu_com_sugestao: number;
   titulos_sem_nsu: number;
   conciliados: number;
+  valor_conciliados: number;
 }
 
 export default function OperadorDashboardV2() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [filialInfo, setFilialInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('pendentes');
   const [metrics, setMetrics] = useState<Metrics>({
@@ -48,6 +50,7 @@ export default function OperadorDashboardV2() {
     nsu_com_sugestao: 0,
     titulos_sem_nsu: 0,
     conciliados: 0,
+    valor_conciliados: 0,
   });
 
   // Modal states
@@ -89,6 +92,17 @@ export default function OperadorDashboardV2() {
 
         const filialCnpj = userFilial.filial_cnpj;
 
+        // Get filial info
+        const { data: filialData } = await supabase
+          .from('filiais')
+          .select('filial_cnpj, nome_filial, codigo_ec, uf')
+          .eq('filial_cnpj', filialCnpj)
+          .single();
+
+        if (filialData) {
+          setFilialInfo(filialData);
+        }
+
         // Load all data in parallel
         const [pendentes, sugestoes, titulos, conciliados] = await Promise.all([
           getNsuPendentes(filialCnpj),
@@ -102,11 +116,16 @@ export default function OperadorDashboardV2() {
         setTitulosSemNsu(titulos);
         setUltimasConciliacoes(conciliados);
 
+        const valorConciliados = conciliados.reduce((sum: number, vinculo: any) => {
+          return sum + (vinculo.transacoes_getnet?.valor_venda || 0);
+        }, 0);
+
         setMetrics({
           nsu_pendentes: pendentes.length,
           nsu_com_sugestao: sugestoes.length,
           titulos_sem_nsu: titulos.length,
           conciliados: conciliados.length,
+          valor_conciliados: valorConciliados,
         });
       } catch (error) {
         console.error('Erro ao carregar dados:', error);
@@ -164,7 +183,7 @@ export default function OperadorDashboardV2() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-emerald-600 flex items-center justify-center">
                 <span className="text-white font-bold text-sm">◆</span>
@@ -194,6 +213,26 @@ export default function OperadorDashboardV2() {
               </div>
             </div>
           </div>
+
+          {/* Filial Info Card */}
+          {filialInfo && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">Loja</p>
+                  <p className="font-semibold text-gray-900 mt-1">{filialInfo.nome_filial || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">CNPJ</p>
+                  <p className="font-mono text-gray-900 mt-1">{filialInfo.filial_cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">EC / UF</p>
+                  <p className="font-semibold text-gray-900 mt-1">{filialInfo.codigo_ec || 'N/A'} • {filialInfo.uf || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -255,13 +294,27 @@ export default function OperadorDashboardV2() {
             color="from-orange-500 to-orange-600"
             action={() => setActiveTab('titulos')}
           />
-          <MetricCard
-            icon={CheckCircle2}
-            label="Conciliados"
-            value={metrics.conciliados}
-            color="from-emerald-500 to-emerald-600"
-            action={() => setActiveTab('conciliados')}
-          />
+          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105">
+            <div className="flex items-start justify-between mb-4">
+              <CheckCircle2 className="w-8 h-8 opacity-80" />
+              <TrendingUp className="w-4 h-4 opacity-50" />
+            </div>
+            <p className="text-sm opacity-75 mb-2">Conciliados (30 dias)</p>
+            <div className="flex items-end justify-between">
+              <div className="flex-1">
+                <p className="text-4xl font-bold">{metrics.conciliados}</p>
+                <p className="text-xs opacity-75 mt-1">R$ {metrics.valor_conciliados.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-white hover:bg-white/20"
+                onClick={() => setActiveTab('conciliados')}
+              >
+                Ver <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* SEÇÃO 3: Tabs com DataTables */}

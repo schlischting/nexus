@@ -240,11 +240,14 @@ export const subscribeToVinculos = (
 // Novas queries para o redesign do operador
 export const getNsuPendentes = async (filialCnpj: string) => {
   const supabase = getClient();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
   const { data, error } = await supabase
     .from('transacoes_getnet')
     .select('*')
     .eq('filial_cnpj', filialCnpj)
     .eq('status', 'pendente')
+    .gte('data_venda', thirtyDaysAgo)
     .order('data_venda', { ascending: false })
     .limit(100);
 
@@ -254,16 +257,19 @@ export const getNsuPendentes = async (filialCnpj: string) => {
 
 export const getNsusComSugestao = async (filialCnpj: string) => {
   const supabase = getClient();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
   const { data, error } = await supabase
-    .from('vinculos')
+    .from('conciliacao_vinculos')
     .select(`
       *,
-      transacoes_getnet:transacao_id(nsu, valor_venda, data_venda, bandeira),
-      titulos_totvs:nf_id(numero_nf, valor_liquido, data_vencimento)
+      transacoes_getnet:transacao_getnet_id(nsu, valor_venda, data_venda, bandeira),
+      titulos_totvs:titulo_totvs_id(numero_nf, valor_liquido, data_vencimento)
     `)
     .eq('filial_cnpj', filialCnpj)
     .eq('status', 'sugerido')
-    .order('score_confianca', { ascending: true })
+    .gte('criado_em', thirtyDaysAgo)
+    .order('score_confianca', { ascending: false })
     .limit(100);
 
   if (error) throw new Error(`Failed to fetch NSU com sugestão: ${error.message}`);
@@ -272,11 +278,14 @@ export const getNsusComSugestao = async (filialCnpj: string) => {
 
 export const getTitulosSemNsu = async (filialCnpj: string) => {
   const supabase = getClient();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
   const { data, error } = await supabase
     .from('titulos_totvs')
     .select('*')
     .eq('filial_cnpj', filialCnpj)
-    .eq('status', 'pendente')
+    .eq('status', 'aberto')
+    .gte('data_vencimento', thirtyDaysAgo)
     .order('data_vencimento', { ascending: true })
     .limit(100);
 
@@ -286,17 +295,20 @@ export const getTitulosSemNsu = async (filialCnpj: string) => {
 
 export const getUltimasConciliacoes = async (filialCnpj: string) => {
   const supabase = getClient();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
   const { data, error } = await supabase
-    .from('vinculos')
+    .from('conciliacao_vinculos')
     .select(`
       *,
-      transacoes_getnet:transacao_id(nsu, valor_venda, bandeira),
-      titulos_totvs:nf_id(numero_nf, valor_liquido),
-      users:user_id(email)
+      transacoes_getnet:transacao_getnet_id(nsu, valor_venda, bandeira),
+      titulos_totvs:titulo_totvs_id(numero_nf, valor_liquido),
+      users:criado_por(email)
     `)
     .eq('filial_cnpj', filialCnpj)
-    .eq('status', 'confirmado')
-    .order('created_at', { ascending: false })
+    .eq('status', 'baixado')
+    .gte('criado_em', thirtyDaysAgo)
+    .order('criado_em', { ascending: false })
     .limit(50);
 
   if (error) throw new Error(`Failed to fetch últimas conciliações: ${error.message}`);

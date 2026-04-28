@@ -14,6 +14,50 @@
 
 ---
 
+## 🏗️ HIERARQUIA: Matriz → Filial → EC → Operador
+
+```
+CNPJ Matriz: 84.943.067/0001-50
+│
+├── Filial 01 (SC — Lages)
+│   ├── CNPJ Filial: 84.943.067/0019-89 ← CHAVE PRIMÁRIA (filial_cnpj)
+│   ├── EC GETNET 1: 4566760 (Código de Estabelecimento)
+│   ├── EC GETNET 2: 4566761 (se houver múltiplos)
+│   ├── Operador: operador_sc@minusa.com
+│   │   └── Acesso: APENAS Filial 01
+│   │       └── RLS filtra por filial_cnpj = 84.943.067/0019-89
+│   └── Dados:
+│       ├── transacoes_getnet (filtradas por filial_cnpj)
+│       ├── titulos_totvs (filtradas por filial_cnpj)
+│       └── conciliacao_vinculos (filtradas por filial_cnpj)
+│
+├── Filial 02 (SP — São Paulo)
+│   ├── CNPJ Filial: 84.943.067/0020-XX
+│   ├── EC GETNET: 4566762
+│   ├── Operador: operador_sp@minusa.com
+│   │   └── Acesso: APENAS Filial 02
+│   └── [dados específicos da filial]
+│
+└── ... (39 filiais restantes)
+
+SUPERVISOR (Matriz)
+├── Acesso: TODAS as 41 filiais
+├── Sem RLS filtrando filial_cnpj
+└── Vê dados consolidados
+```
+
+### 🔑 REGRA DE OURO:
+```
+✅ 1 Operador ↔ 1 Filial (CNPJ) ↔ 1 ou + ECs GETNET
+✅ Operador SÓ VÊ sua filial (filial_cnpj do user_filiais)
+✅ Dashboard mostra: "Loja: MINUSA FILIAL SC | CNPJ: 84.943.067/0019-89 | EC: 4566760"
+✅ Todas as queries filtram por filial_cnpj do operador autenticado
+✅ Supervisor vê TODAS as filiais sem filtro
+✅ Admin vê TUDO + logs de auditoria
+```
+
+---
+
 ## 📋 Regra de Negócio Central
 
 > **Toda transação GETNET tem um título correspondente no TOTVS.**
