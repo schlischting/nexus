@@ -228,7 +228,7 @@ export default function LancamentoPage() {
                       placeholder="NF-001234"
                       value={nfNumber}
                       onChange={(e) => setNfNumber(e.target.value)}
-                      className="w-full"
+                      className="w-full bg-white text-gray-900 placeholder-gray-500 border border-gray-300"
                     />
                   </div>
 
@@ -239,7 +239,7 @@ export default function LancamentoPage() {
                     <select
                       value={modalidade}
                       onChange={(e) => setModalidade(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent"
                     >
                       <option value="debito">Débito</option>
                       <option value="credito">Crédito</option>
@@ -257,7 +257,7 @@ export default function LancamentoPage() {
                       max="12"
                       value={parcelas}
                       onChange={(e) => setParcelas(e.target.value)}
-                      className="w-full"
+                      className="w-full bg-white text-gray-900 placeholder-gray-500 border border-gray-300"
                     />
                   </div>
 

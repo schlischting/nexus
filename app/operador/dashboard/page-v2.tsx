@@ -353,6 +353,7 @@ export default function OperadorDashboardV2() {
                         <th className="px-6 py-3 text-right font-medium text-gray-700">Valor</th>
                         <th className="px-6 py-3 text-left font-medium text-gray-700">Bandeira</th>
                         <th className="px-6 py-3 text-left font-medium text-gray-700">Tipo</th>
+                        <th className="px-6 py-3 text-left font-medium text-gray-700">Origem</th>
                         <th className="px-6 py-3 text-left font-medium text-gray-700">Data</th>
                         <th className="px-6 py-3 text-left font-medium text-gray-700">Dias</th>
                         <th className="px-6 py-3 text-right font-medium text-gray-700">Ação</th>
@@ -370,6 +371,17 @@ export default function OperadorDashboardV2() {
                           </td>
                           <td className="px-6 py-4 text-gray-600">
                             {row.modalidade === 'debito' ? '🏧 Débito' : '💳 Crédito'}
+                          </td>
+                          <td className="px-6 py-4">
+                            {row.origem === 'arquivo_getnet' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                                🔵 GETNET
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-semibold">
+                                ⭕ Manual
+                              </span>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-gray-600">
                             {new Date(row.data_venda).toLocaleDateString('pt-BR')}
