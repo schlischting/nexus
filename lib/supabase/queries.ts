@@ -369,3 +369,103 @@ export const criarVinculoComNf = async (
   if (error) throw new Error(`Failed to create vínculo com NF: ${error.message}`);
   return data?.[0];
 };
+
+// ============================================================================
+// NSU WORKFLOWS v2.1 — Suporte para 2 fluxos (arquivo_getnet vs digitado_operador)
+// ============================================================================
+
+// 1. Buscar NSUs do arquivo GETNET (pendentes)
+export const getNsuArquivoGetnet = async (filialCnpj: string) => {
+  const supabase = getClient();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const { data, error } = await supabase
+    .from('transacoes_getnet')
+    .select('*')
+    .eq('filial_cnpj', filialCnpj)
+    .eq('origem', 'arquivo_getnet')
+    .eq('status', 'pendente')
+    .gte('data_venda', thirtyDaysAgo)
+    .order('data_venda', { ascending: false })
+    .limit(100);
+
+  if (error) throw new Error(`Failed to fetch NSU arquivo GETNET: ${error.message}`);
+  return data || [];
+};
+
+// 2. Buscar NSUs digitadas pelo operador (pendentes)
+export const getNsuDigitadasOperador = async (filialCnpj: string) => {
+  const supabase = getClient();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('transacoes_getnet')
+    .select('*')
+    .eq('filial_cnpj', filialCnpj)
+    .eq('origem', 'digitado_operador')
+    .eq('status', 'pendente')
+    .gte('data_ingesta', thirtyDaysAgo)
+    .order('data_ingesta', { ascending: false })
+    .limit(100);
+
+  if (error) throw new Error(`Failed to fetch NSU digitadas: ${error.message}`);
+  return data || [];
+};
+
+// 3. Buscar NSU específica no arquivo GETNET
+export const searchNsuEmArquivo = async (filialCnpj: string, nsu: string) => {
+  const supabase = getClient();
+
+  const { data, error } = await supabase
+    .from('transacoes_getnet')
+    .select('*')
+    .eq('filial_cnpj', filialCnpj)
+    .eq('origem', 'arquivo_getnet')
+    .ilike('nsu', `%${nsu.trim()}%`)
+    .limit(10);
+
+  if (error) throw new Error(`Failed to search NSU em arquivo: ${error.message}`);
+  return data || [];
+};
+
+// 4. Criar NSU digitada manualmente pelo operador
+export const criarNsuDigitada = async (nsuData: {
+  filial_cnpj: string;
+  nsu: string;
+  autorizacao: string;
+  data_venda: string;
+  valor_venda: number;
+  bandeira: string;
+  modalidade?: string;
+  codigo_ec?: string;
+}) => {
+  const supabase = getClient();
+
+  // Gerar hash para deduplicação
+  const hashData = `${nsuData.filial_cnpj}|${nsuData.nsu}|${nsuData.autorizacao}|${nsuData.data_venda}|${nsuData.valor_venda}`;
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashData));
+  const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+  const { data, error } = await supabase
+    .from('transacoes_getnet')
+    .insert([
+      {
+        filial_cnpj: nsuData.filial_cnpj,
+        nsu: nsuData.nsu,
+        autorizacao: nsuData.autorizacao,
+        data_venda: nsuData.data_venda,
+        hora_venda: new Date().toLocaleTimeString('pt-BR', { hour12: false }),
+        valor_venda: nsuData.valor_venda,
+        bandeira: nsuData.bandeira,
+        modalidade: nsuData.modalidade || 'credito',
+        codigo_ec: nsuData.codigo_ec || '000000',
+        origem: 'digitado_operador',
+        status: 'pendente',
+        hash_transacao: hashHex,
+      },
+    ])
+    .select();
+
+  if (error) throw new Error(`Failed to create NSU digitada: ${error.message}`);
+  return data?.[0];
+};

@@ -7,10 +7,16 @@ export type TipoTitulo = 'NF' | 'AN' | 'PR' | 'CB' | 'CX' | 'OP' | 'CH' | 'BL';
 export type PerfilUsuario = 'operador_filial' | 'supervisor' | 'admin';
 export type ModalidadePagamento = 'credito_a_vista' | 'credito_parcelado' | 'debito';
 
+export enum OrigemNsu {
+  ARQUIVO_GETNET = 'arquivo_getnet',
+  DIGITADO_OPERADOR = 'digitado_operador',
+}
+
 export interface Transacao {
   transacao_id: string;
   filial_cnpj: string;
   nsu: string;
+  origem: OrigemNsu; // NOVO: arquivo_getnet ou digitado_operador
   data_solicitacao: string; // ISO date
   data_venda: string; // ISO date
   valor_bruto: number;

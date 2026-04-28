@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS transacoes_getnet (
   codigo_ec VARCHAR(20) NOT NULL,
 
   status status_transacao DEFAULT 'pendente',
+  origem VARCHAR(50) NOT NULL DEFAULT 'arquivo_getnet'
+    CONSTRAINT ck_origem CHECK (origem IN ('arquivo_getnet', 'digitado_operador')),
   hash_transacao VARCHAR(64) UNIQUE,
   eh_duplicata BOOLEAN DEFAULT false,
 
@@ -180,6 +182,10 @@ COMMENT ON COLUMN transacoes_getnet.hash_transacao IS
 COMMENT ON COLUMN transacoes_getnet.eh_duplicata IS
   'TRUE se a mesma transação foi detectada N vezes (parcelamento ou erro de transmissão).
    Mantém histórico, marca como duplicata para análise posterior.';
+
+COMMENT ON COLUMN transacoes_getnet.origem IS
+  'Origem da transação: arquivo_getnet (importada de arquivo ADTO_*.xlsx) ou digitado_operador (lançada manualmente).
+   Usado para diferenciar fluxos no dashboard e queries.';
 
 -- 3.4 TITULOS_TOTVS (Fatos do ERP)
 CREATE TABLE IF NOT EXISTS titulos_totvs (
@@ -361,6 +367,9 @@ CREATE INDEX IF NOT EXISTS idx_transacoes_getnet_filial_cnpj_data
 
 CREATE INDEX IF NOT EXISTS idx_transacoes_getnet_filial_cnpj_nsu
   ON transacoes_getnet(filial_cnpj, nsu);
+
+CREATE INDEX IF NOT EXISTS idx_transacoes_getnet_origem
+  ON transacoes_getnet(filial_cnpj, origem, status);
 
 CREATE INDEX IF NOT EXISTS idx_transacoes_getnet_hash
   ON transacoes_getnet(hash_transacao);
