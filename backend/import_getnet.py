@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Nexus: Script de Ingestão de Transações GETNET
 
@@ -6,13 +7,20 @@ Propósito:
   - Ler arquivo Excel ADTO_*.xlsx (sheet: 'Detalhado')
   - Validar e limpar dados conforme regras GETNET
   - Aplicar filtros obrigatórios (TIPO DE LANÇAMENTO == 'Vendas')
-  - Detectar duplicatas via hash
+  - Detectar duplicatas via hash (incluindo CNPJ para unicidade por filial)
   - Preparar estrutura para Supabase API
+  - Suportar processamento de 1 ou múltiplos CNPJs (41 filiais)
 
 Uso:
-  python import_getnet.py --file ADTO_23042026.xlsx --filial_cnpj "12345678000195" --dry-run
+  # Importar apenas 1 CNPJ (com filtro)
+  python import_getnet.py --file ADTO_23042026.xlsx --filial-cnpj "12345678000195" --dry-run
+
+  # Importar TODOS os CNPJs do arquivo (sem filtro)
+  python import_getnet.py --file ADTO_23042026.xlsx --dry-run
 """
 
+import sys
+import os
 import argparse
 import hashlib
 import json
@@ -25,6 +33,15 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from dotenv import load_dotenv
 
+# Carregar variáveis de ambiente para Supabase (opcional em dry-run)
+try:
+    from supabase import create_client, Client
+except ImportError:
+    Client = None
+
+# Configurar encoding UTF-8 para output
+sys.stdout.reconfigure(encoding='utf-8')
+
 # ============================================================================
 # CONFIGURAÇÃO DE LOGGING
 # ============================================================================
@@ -33,23 +50,38 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('import_getnet.log'),
+        logging.FileHandler('import_getnet.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# CONSTANTES
+# CONSTANTES - MAPEAMENTO POR ÍNDICE DE COLUNA (MAIS ROBUSTO)
 # ============================================================================
 
-# Mapeamento de colunas do Excel ADTO para atributos internos
-COLUNAS_MAPEAMENTO = {
+# Índices das colunas no Excel ADTO (após skiprows=7)
+# Posição 0-based do arquivo "Detalhado"
+INDICES_COLUNAS = {
+    'codigo_ec': 1,                   # ESTABELECIMENTO COMERCIAL
+    'filial_cnpj': 2,                 # CPF / CNPJ
+    'data_venda': 13,                 # DATA DA VENDA
+    'hora_venda': 14,                 # HORA DA VENDA (NOVO - usar este em vez de timestamp)
+    'valor_venda': 15,                # VALOR DA VENDA
+    'numero_autorizacao': 10,         # AUTORIZAÇÃO
+    'nsu': 11,                        # NÚMERO COMPROVANTE DE VENDA (NSU)
+    'bandeira': 4,                    # BANDEIRA / MODALIDADE
+    'tipo_lancamento': 5              # TIPO DE LANÇAMENTO
+}
+
+# Descrição das colunas (para logging/referência)
+NOMES_COLUNAS = {
     'codigo_ec': 'ESTABELECIMENTO COMERCIAL',
     'filial_cnpj': 'CPF / CNPJ',
     'nsu': 'NÚMERO COMPROVANTE DE VENDA (NSU)',
     'numero_autorizacao': 'AUTORIZAÇÃO',
     'data_venda': 'DATA DA VENDA',
+    'hora_venda': 'HORA DA VENDA',
     'valor_venda': 'VALOR DA VENDA',
     'bandeira': 'BANDEIRA / MODALIDADE',
     'tipo_lancamento': 'TIPO DE LANÇAMENTO'
@@ -89,10 +121,37 @@ def validar_nsu(nsu: str) -> bool:
 
 
 def validar_autorizacao(auth: str) -> bool:
-    """Autorização: deve ter pelo menos 1 caractere (não nulo)."""
+    """
+    Autorização: deve ter pelo menos 1 caractere (não nulo ou '-').
+    Rejeita explicitamente '-' igual ao NSU.
+    """
     if not isinstance(auth, str):
         return False
-    return bool(str(auth).strip())
+    auth_limpo = str(auth).strip()
+    # Rejeitar vazio, nulo ou '-'
+    return auth_limpo and auth_limpo != '-'
+
+
+def validar_hora(hora_str: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validar hora. Esperado: 'HH:MM:SS'
+    Retorna (válido, hora_str_limpo)
+    """
+    if not isinstance(hora_str, str):
+        return False, None
+
+    hora_limpo = str(hora_str).strip()
+
+    # Rejeitar valor vazio ou '-'
+    if not hora_limpo or hora_limpo == '-':
+        return False, None
+
+    # Tentar validar com strptime
+    try:
+        datetime.strptime(hora_limpo, '%H:%M:%S')
+        return True, hora_limpo
+    except ValueError:
+        return False, None
 
 
 def validar_data(data_str: str) -> Tuple[bool, Optional[datetime]]:
@@ -124,7 +183,7 @@ def validar_valor(valor_str) -> Tuple[bool, Optional[float]]:
       - String inteira: '255', '7600'
       - String com decimais: '1000.50'
       - Não pode ser '-'
-    Retorna em centavos (multiplicado por 100).
+    Retorna (válido, valor_float)
     """
     if not isinstance(valor_str, str):
         return False, None
@@ -165,7 +224,6 @@ def validar_bandeira(bandeira_str: str) -> Tuple[bool, Optional[str]]:
     bandeiras_conhecidas = {
         'visa': 'Visa',
         'mastercard': 'Mastercard',
-        'mastercard (transacoes)': 'Mastercard',
         'elo': 'Elo',
         'diners': 'Diners',
         'amex': 'AMEX',
@@ -181,13 +239,63 @@ def validar_bandeira(bandeira_str: str) -> Tuple[bool, Optional[str]]:
     return False, None
 
 
-def gerar_hash_transacao(nsu: str, auth: str, valor: str, data_str: str) -> str:
+def gerar_hash_transacao(cnpj: str, nsu: str, auth: str, valor: str, data_str: str) -> str:
     """
     Gerar hash SHA256 único para detectar duplicatas.
-    Concatena: NSU + Autorização + Valor + Data
+    Concatena: CNPJ + NSU + Autorização + Valor + Data (CNPJ incluso para garantir unicidade por filial).
     """
-    chave = f"{nsu}|{auth}|{valor}|{data_str}"
+    chave = f"{cnpj}|{nsu}|{auth}|{valor}|{data_str}"
     return hashlib.sha256(chave.encode()).hexdigest()
+
+
+def verificar_ou_criar_filial(supabase_client: Optional[object], cnpj: str, codigo_ec: str) -> bool:
+    """
+    Verificar se filial existe na tabela 'filiais' do Supabase.
+    Se não existir, inserir automaticamente.
+
+    Args:
+        supabase_client: Cliente Supabase (None em dry-run)
+        cnpj: CNPJ da filial (14 dígitos, sem formatação)
+        codigo_ec: Código de Estabelecimento Comercial do Excel
+
+    Returns:
+        True se existe ou foi criada, False se erro
+    """
+    if not supabase_client:
+        # Em dry-run, apenas log
+        logger.info(f"[DRY-RUN] Verificaria filial: {cnpj}")
+        return True
+
+    try:
+        # Tentar buscar filial existente
+        response = supabase_client.table('filiais').select('filial_id').eq('codigo_filial', cnpj).execute()
+
+        if response.data and len(response.data) > 0:
+            logger.info(f"✓ Filial {cnpj} já existe (filial_id: {response.data[0]['filial_id']})")
+            return True
+
+        # Se não existe, inserir automaticamente
+        logger.warning(f"⚠ Filial {cnpj} não encontrada. Criando automaticamente...")
+
+        new_filial = {
+            'codigo_filial': cnpj,
+            'nome_filial': f"Filial {cnpj} (Auto-criada)",
+            'uf': 'SP',  # Padrão - pode ser ajustado depois
+            'ativo': True
+        }
+
+        insert_response = supabase_client.table('filiais').insert(new_filial).execute()
+
+        if insert_response.data:
+            logger.info(f"✓ Filial {cnpj} criada com sucesso (filial_id: {insert_response.data[0]['filial_id']})")
+            return True
+        else:
+            logger.error(f"✗ Erro ao criar filial {cnpj}: {insert_response}")
+            return False
+
+    except Exception as e:
+        logger.error(f"✗ Erro ao verificar/criar filial {cnpj}: {str(e)}")
+        return False
 
 
 # ============================================================================
@@ -197,16 +305,22 @@ def gerar_hash_transacao(nsu: str, auth: str, valor: str, data_str: str) -> str:
 class ImportadorGETNET:
     """Orquestrador de ingestão GETNET a partir de Excel ADTO."""
 
-    def __init__(self, arquivo: str, filial_cnpj: str, dry_run: bool = False):
+    def __init__(self, arquivo: str, filial_cnpj: Optional[str] = None, dry_run: bool = False, supabase_client: Optional[object] = None):
         self.arquivo = Path(arquivo)
-        self.filial_cnpj = extrair_numeros_cnpj(filial_cnpj)
+        self.filial_cnpj_filtro = extrair_numeros_cnpj(filial_cnpj) if filial_cnpj else None
         self.dry_run = dry_run
+        self.supabase_client = supabase_client
 
         self.df_bruto: pd.DataFrame = None
         self.df_limpo: pd.DataFrame = None
         self.transacoes_validas: List[Dict] = []
         self.erros: List[Dict] = []
         self.avisos: List[Dict] = []
+
+        # Métricas agrupadas por CNPJ
+        self.metricas_por_cnpj: Dict[str, Dict] = {}
+        self.cnpjs_processados: set = set()
+        self.cnpjs_verificados: Dict[str, bool] = {}  # Cache de verificação de filiais
 
         self.metricas = {
             'total_linhas': 0,
@@ -216,7 +330,8 @@ class ImportadorGETNET:
             'com_erro': 0,
             'duplicatas': 0,
             'valor_total': 0.0,
-            'distribuicao_tipos': {}
+            'distribuicao_tipos': {},
+            'filiais_criadas': 0
         }
 
     def ler_arquivo(self) -> bool:
@@ -237,17 +352,13 @@ class ImportadorGETNET:
             )
 
             self.metricas['total_linhas'] = len(self.df_bruto)
-            logger.info(f"Total de linhas lidas: {self.metricas['total_linhas']}")
-            logger.info(f"Colunas encontradas ({len(self.df_bruto.columns)}): {list(self.df_bruto.columns)}")
+            logger.info(f"Total de linhas lidas: {self.metricas['total_linhas']:,}")
+            logger.info(f"Colunas encontradas: {len(self.df_bruto.columns)}")
 
-            # Verificar se todas as colunas esperadas existem
-            colunas_esperadas = set(COLUNAS_MAPEAMENTO.values())
-            colunas_presentes = set(self.df_bruto.columns)
-            colunas_faltantes = colunas_esperadas - colunas_presentes
-
-            if colunas_faltantes:
-                logger.error(f"Colunas faltantes no Excel: {colunas_faltantes}")
-                return False
+            # Log dos primeiros 5 nomes de coluna (pode ter encoding issues)
+            logger.info(f"Primeiras 5 colunas (índices 0-4):")
+            for i in range(min(5, len(self.df_bruto.columns))):
+                logger.info(f"  [{i}] {repr(self.df_bruto.columns[i])}")
 
             return True
 
@@ -274,7 +385,6 @@ class ImportadorGETNET:
         logger.info("Iniciando validação e limpeza...")
 
         df = self.df_bruto.copy()
-        df = df.fillna('')  # Preencher NaN com strings vazias
 
         hashes_vistos = set()
 
@@ -282,11 +392,23 @@ class ImportadorGETNET:
             erros_linha = []
             linha_numero = idx + 8 + 2  # +8 (skiprows) +2 (header + 1-based indexing)
 
+            # ========== EXTRAÇÃO DE CAMPOS (por índice) ==========
+
+            # TIPO DE LANÇAMENTO (coluna 5)
+            tipo_lancamento = str(row.iloc[INDICES_COLUNAS['tipo_lancamento']]).strip() if INDICES_COLUNAS['tipo_lancamento'] < len(row) else ''
+
+            # ESTABELECIMENTO COMERCIAL (coluna 1)
+            estabelecimento = str(row.iloc[INDICES_COLUNAS['codigo_ec']]).strip() if INDICES_COLUNAS['codigo_ec'] < len(row) else ''
+
+            # NSU (coluna 11)
+            nsu_raw = str(row.iloc[INDICES_COLUNAS['nsu']]).strip() if INDICES_COLUNAS['nsu'] < len(row) else ''
+
+            # VALOR DA VENDA (coluna 15)
+            valor_raw = str(row.iloc[INDICES_COLUNAS['valor_venda']]).strip() if INDICES_COLUNAS['valor_venda'] < len(row) else ''
+
             # ========== FILTROS CRÍTICOS (descartar silenciosamente) ==========
 
             # Filtro 1: TIPO_LANÇAMENTO deve ser 'Vendas'
-            tipo_lancamento = str(row.get(COLUNAS_MAPEAMENTO['tipo_lancamento'], '')).strip()
-
             if tipo_lancamento not in [TIPO_LANCAMENTO_VALIDO]:
                 # Contar por tipo para relatório
                 if tipo_lancamento:
@@ -296,7 +418,6 @@ class ImportadorGETNET:
                 continue
 
             # Filtro 2: ESTABELECIMENTO_COMERCIAL não pode ser nulo (é subtotal)
-            estabelecimento = str(row.get(COLUNAS_MAPEAMENTO['codigo_ec'], '')).strip()
             if not estabelecimento:
                 self.metricas['descartes_nulos'] += 1
                 self.avisos.append({
@@ -306,7 +427,6 @@ class ImportadorGETNET:
                 continue
 
             # Filtro 3: NSU não pode ser nulo ou '-'
-            nsu_raw = str(row.get(COLUNAS_MAPEAMENTO['nsu'], '')).strip()
             if not validar_nsu(nsu_raw):
                 self.metricas['descartes_nulos'] += 1
                 self.avisos.append({
@@ -318,7 +438,6 @@ class ImportadorGETNET:
             nsu = nsu_raw
 
             # Filtro 4: VALOR não pode ser nulo ou '-'
-            valor_raw = str(row.get(COLUNAS_MAPEAMENTO['valor_venda'], '')).strip()
             valor_valido, valor = validar_valor(valor_raw)
             if not valor_valido:
                 self.metricas['descartes_nulos'] += 1
@@ -330,33 +449,56 @@ class ImportadorGETNET:
 
             # ========== VALIDAÇÕES RESTANTES ==========
 
-            # Autorização
-            auth = str(row.get(COLUNAS_MAPEAMENTO['numero_autorizacao'], '')).strip()
-            if not validar_autorizacao(auth):
-                erros_linha.append(f"Autorização vazia ou inválida")
+            # AUTORIZAÇÃO (coluna 10) - AGORA COM VALIDAÇÃO DE '-'
+            auth_raw = str(row.iloc[INDICES_COLUNAS['numero_autorizacao']]).strip() if INDICES_COLUNAS['numero_autorizacao'] < len(row) else ''
+            if not validar_autorizacao(auth_raw):
+                erros_linha.append(f"Autorização vazia, '-' ou inválida: {auth_raw}")
+            auth = auth_raw
 
-            # Data
-            data_raw = str(row.get(COLUNAS_MAPEAMENTO['data_venda'], '')).strip()
+            # DATA (coluna 13)
+            data_raw = str(row.iloc[INDICES_COLUNAS['data_venda']]).strip() if INDICES_COLUNAS['data_venda'] < len(row) else ''
             data_valida, data_obj = validar_data(data_raw)
             if not data_valida:
                 erros_linha.append(f"Data inválida: {data_raw}")
 
-            # Bandeira
-            bandeira_raw = str(row.get(COLUNAS_MAPEAMENTO['bandeira'], '')).strip()
+            # HORA (coluna 14 - NOVA ABORDAGEM)
+            hora_raw = str(row.iloc[INDICES_COLUNAS['hora_venda']]).strip() if INDICES_COLUNAS['hora_venda'] < len(row) else ''
+            hora_valida, hora_str = validar_hora(hora_raw)
+            if not hora_valida:
+                erros_linha.append(f"Hora inválida: {hora_raw}")
+
+            # BANDEIRA (coluna 4)
+            bandeira_raw = str(row.iloc[INDICES_COLUNAS['bandeira']]).strip() if INDICES_COLUNAS['bandeira'] < len(row) else ''
             bandeira_valida, bandeira = validar_bandeira(bandeira_raw)
             if not bandeira_valida:
                 erros_linha.append(f"Bandeira inválida ou desconhecida: {bandeira_raw}")
 
-            # CNPJ da filial
-            cnpj_raw = str(row.get(COLUNAS_MAPEAMENTO['filial_cnpj'], '')).strip()
+            # CNPJ DA FILIAL (coluna 2)
+            cnpj_raw = str(row.iloc[INDICES_COLUNAS['filial_cnpj']]).strip() if INDICES_COLUNAS['filial_cnpj'] < len(row) else ''
             cnpj = extrair_numeros_cnpj(cnpj_raw)
-            if not cnpj or cnpj != self.filial_cnpj:
-                erros_linha.append(f"CNPJ não bate: {cnpj} vs {self.filial_cnpj}")
+            if not cnpj:
+                erros_linha.append(f"CNPJ inválido ou vazio")
+
+            # Se filial_cnpj foi especificado, filtrar apenas esse CNPJ
+            if self.filial_cnpj_filtro and cnpj != self.filial_cnpj_filtro:
+                erros_linha.append(f"CNPJ não bate: {cnpj} vs {self.filial_cnpj_filtro}")
+
+            # Verificar/criar filial no Supabase (apenas uma vez por CNPJ)
+            if cnpj and cnpj not in self.cnpjs_verificados:
+                filial_ok = verificar_ou_criar_filial(self.supabase_client, cnpj, estabelecimento)
+                self.cnpjs_verificados[cnpj] = filial_ok
+                if filial_ok:
+                    self.metricas['filiais_criadas'] += 1
+
+            # Se filial não pode ser verificada/criada, rejeitar transação
+            if cnpj and not self.cnpjs_verificados.get(cnpj, False):
+                erros_linha.append(f"Filial {cnpj} não pode ser verificada/criada no Supabase")
 
             # ========== DETECÇÃO DE DUPLICATA ==========
-            if nsu and auth and valor and data_obj:
+            # Hash incluindo CNPJ para garantir unicidade por filial
+            if cnpj and nsu and auth and valor and data_obj:
                 hash_tx = gerar_hash_transacao(
-                    nsu, auth, f"{valor:.2f}", data_obj.isoformat()
+                    cnpj, nsu, auth, f"{valor:.2f}", data_obj.isoformat()
                 )
                 if hash_tx in hashes_vistos:
                     erros_linha.append("Transação duplicada (hash já visto)")
@@ -370,8 +512,20 @@ class ImportadorGETNET:
                 self.erros.append({
                     'linha': linha_numero,
                     'nsu': nsu,
+                    'cnpj': cnpj,
                     'erros': '; '.join(erros_linha)
                 })
+
+                # Contar erros por CNPJ
+                if cnpj:
+                    if cnpj not in self.metricas_por_cnpj:
+                        self.metricas_por_cnpj[cnpj] = {
+                            'validas': 0,
+                            'com_erro': 0,
+                            'valor_total': 0.0
+                        }
+                    self.metricas_por_cnpj[cnpj]['com_erro'] += 1
+                    self.cnpjs_processados.add(cnpj)
             else:
                 self.metricas['validas'] += 1
                 self.metricas['valor_total'] += valor
@@ -381,23 +535,34 @@ class ImportadorGETNET:
                     'nsu': nsu,
                     'numero_autorizacao': auth,
                     'data_transacao': data_obj.date().isoformat(),
-                    'hora_transacao': f"{data_obj.hour:02d}:{data_obj.minute:02d}:{data_obj.second:02d}",
+                    'hora_transacao': hora_str,
                     'valor': valor,
                     'bandeira': bandeira,
                     'codigo_ec': estabelecimento,
                     'tipo_lancamento': tipo_lancamento,
                     'hash_transacao': gerar_hash_transacao(
-                        nsu, auth, f"{valor:.2f}", data_obj.isoformat()
+                        cnpj, nsu, auth, f"{valor:.2f}", data_obj.isoformat()
                     ),
                     'status': 'pendente'
                 })
 
+                # Agrupar métricas por CNPJ
+                if cnpj not in self.metricas_por_cnpj:
+                    self.metricas_por_cnpj[cnpj] = {
+                        'validas': 0,
+                        'com_erro': 0,
+                        'valor_total': 0.0
+                    }
+                self.metricas_por_cnpj[cnpj]['validas'] += 1
+                self.metricas_por_cnpj[cnpj]['valor_total'] += valor
+                self.cnpjs_processados.add(cnpj)
+
         logger.info(
             f"Validação completa:\n"
-            f"  - Filtradas por tipo (não 'Vendas'): {self.metricas['filtradas_tipo_lancamento']}\n"
-            f"  - Descartes por nulos: {self.metricas['descartes_nulos']}\n"
-            f"  - Válidas: {self.metricas['validas']}\n"
-            f"  - Com erro: {self.metricas['com_erro']}\n"
+            f"  - Filtradas por tipo (não 'Vendas'): {self.metricas['filtradas_tipo_lancamento']:,}\n"
+            f"  - Descartes por nulos: {self.metricas['descartes_nulos']:,}\n"
+            f"  - Válidas: {self.metricas['validas']:,}\n"
+            f"  - Com erro: {self.metricas['com_erro']:,}\n"
             f"  - Duplicatas: {self.metricas['duplicatas']}"
         )
 
@@ -412,38 +577,53 @@ class ImportadorGETNET:
             self.metricas['com_erro']
         )
 
-        print("\n" + "="*80)
+        print("\n" + "="*100)
         print("RELATÓRIO DE INGESTÃO GETNET - ADTO")
-        print("="*80)
+        print("="*100)
         print(f"Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Filial CNPJ: {self.filial_cnpj}")
+        filtro_label = f"Filial CNPJ: {self.filial_cnpj_filtro}" if self.filial_cnpj_filtro else "Modo: TODOS OS CNPJs"
+        print(filtro_label)
         print(f"Arquivo: {self.arquivo.name}")
         print(f"Modo: {'DRY-RUN (sem inserção)' if self.dry_run else 'PRODUÇÃO'}")
-        print("-"*80)
+        print("-"*100)
 
-        print("\n📊 RESUMO DE PROCESSAMENTO:")
+        print("\n📊 RESUMO GERAL:")
         print(f"  Total de linhas no Excel:        {self.metricas['total_linhas']:,}")
         print(f"  Processadas:                     {total_processado:,}")
         print(f"    ├─ Filtradas (não 'Vendas'):   {self.metricas['filtradas_tipo_lancamento']:,}")
         print(f"    ├─ Descartes (nulos):          {self.metricas['descartes_nulos']:,}")
-        print(f"    ├─ Válidas (inserção):         {self.metricas['validas']:,} ✅")
-        print(f"    └─ Com erro (validação):       {self.metricas['com_erro']:,} ❌")
+        print(f"    ├─ Válidas (inserção):         {self.metricas['validas']:,} OK")
+        print(f"    └─ Com erro (validação):       {self.metricas['com_erro']:,} ERRO")
         print(f"  Duplicatas detectadas:           {self.metricas['duplicatas']}")
         print(f"  Valor total importado:           R$ {self.metricas['valor_total']:,.2f}")
+        if not self.dry_run and self.metricas['filiais_criadas'] > 0:
+            print(f"  Filiais criadas no Supabase:     {self.metricas['filiais_criadas']}")
 
         if self.metricas['distribuicao_tipos']:
             print("\n📋 DISTRIBUIÇÃO DE TIPOS (DESCARTADOS):")
             for tipo, count in sorted(self.metricas['distribuicao_tipos'].items(), key=lambda x: x[1], reverse=True):
-                print(f"  ├─ {tipo}: {count:,}")
+                pct = (count / self.metricas['total_linhas']) * 100
+                print(f"  ├─ {tipo}: {count:,} ({pct:.1f}%)")
 
         if self.metricas['total_linhas'] > 0:
             taxa_sucesso = (self.metricas['validas'] / self.metricas['total_linhas']) * 100
-            print(f"\n📈 TAXA DE SUCESSO: {taxa_sucesso:.1f}%")
+            print(f"\n📈 TAXA DE SUCESSO GERAL: {taxa_sucesso:.1f}%")
+
+        # Mostrar breakdown por CNPJ se processou múltiplos
+        if len(self.cnpjs_processados) > 1:
+            print(f"\n💾 DETALHES POR CNPJ ({len(self.cnpjs_processados)} filiais):")
+            print(f"  {'CNPJ':<15} {'Válidas':>10} {'Erros':>10} {'Valor Total':>20}")
+            print(f"  {'-'*15} {'-'*10} {'-'*10} {'-'*20}")
+
+            for cnpj in sorted(self.metricas_por_cnpj.keys()):
+                metr = self.metricas_por_cnpj[cnpj]
+                print(f"  {cnpj:<15} {metr['validas']:>10,} {metr['com_erro']:>10,} R$ {metr['valor_total']:>18,.2f}")
 
         if self.erros:
             print(f"\n⚠️  ERROS DE VALIDAÇÃO (mostrando 5 primeiros de {len(self.erros)}):")
             for erro in self.erros[:5]:
-                print(f"  Linha {erro['linha']:,} (NSU {erro['nsu']}):")
+                cnpj_info = f" [{erro.get('cnpj', 'N/A')}]" if erro.get('cnpj') else ""
+                print(f"  Linha {erro['linha']:,} (NSU {erro['nsu']}{cnpj_info}):")
                 print(f"    └─ {erro['erros']}")
             if len(self.erros) > 5:
                 print(f"  ... e mais {len(self.erros) - 5} erros (ver import_getnet.log)")
@@ -455,17 +635,19 @@ class ImportadorGETNET:
             if len(self.avisos) > 3:
                 print(f"  ... e mais {len(self.avisos) - 3} avisos (ver import_getnet.log)")
 
-        print("="*80 + "\n")
+        print("="*100 + "\n")
 
     def gerar_json_saida(self) -> str:
         """Gerar JSON pronto para Supabase API."""
         output = {
             'metadata': {
                 'data_ingesta': datetime.now().isoformat(),
-                'filial_id': self.filial_id,
+                'filtro_cnpj': self.filial_cnpj_filtro if self.filial_cnpj_filtro else 'TODOS',
+                'cnpjs_processados': sorted(list(self.cnpjs_processados)),
                 'total_registros': len(self.transacoes_validas),
                 'valor_total': self.metricas['valor_total'],
-                'arquivo_origem': str(self.arquivo)
+                'arquivo_origem': str(self.arquivo),
+                'metricas_por_cnpj': self.metricas_por_cnpj
             },
             'transacoes': self.transacoes_validas
         }
@@ -495,7 +677,7 @@ class ImportadorGETNET:
 
         logger.info(f"JSON de saída salvo em: {output_file}")
 
-        if not self.dry_run:
+        if self.dry_run:
             logger.info("Modo seco ativado. Nenhum dado foi enviado ao Supabase.")
         else:
             logger.info("Para enviar ao Supabase, remova a flag --dry-run e configure"
@@ -515,14 +697,22 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Exemplos:
+  # Modo validação (dry-run)
+  python import_getnet.py --file ADTO_23042026.xlsx --dry-run
+
+  # Modo produção (requer SUPABASE_URL e SUPABASE_KEY no .env)
   python import_getnet.py --file ADTO_23042026.xlsx --filial-cnpj "12345678000195"
-  python import_getnet.py --file ADTO_23042026.xlsx --filial-cnpj "12.345.678/0001-95" --dry-run
+
+  # Todos os CNPJs, validação apenas
+  python import_getnet.py --file ADTO_23042026.xlsx --dry-run
 
 Notas:
   - O arquivo deve ser Excel (.xlsx) com aba 'Detalhado'
   - CNPJ aceita com ou sem formatação (apenas dígitos são extraídos)
   - Em modo --dry-run, apenas valida, não insere no banco
+  - Modo produção: filiais não encontradas são criadas automaticamente
   - Saída: ADTO_23042026_processed.json (pronto para Supabase)
+  - Suporta 41 filiais (CNPJs) únicas no arquivo
         '''
     )
 
@@ -535,8 +725,8 @@ Notas:
     parser.add_argument(
         '--filial-cnpj',
         type=str,
-        required=True,
-        help='CNPJ da filial (aceita com ou sem formatação)'
+        required=False,
+        help='CNPJ da filial (aceita com ou sem formatação). Se omitido, processa TODOS os CNPJs do arquivo'
     )
     parser.add_argument(
         '--dry-run',
@@ -549,13 +739,42 @@ Notas:
     # Executar
     logger.info(f"Iniciando importação:")
     logger.info(f"  Arquivo: {args.file}")
-    logger.info(f"  Filial CNPJ: {args.filial_cnpj}")
-    logger.info(f"  Modo: {'DRY-RUN' if args.dry_run else 'PRODUÇÃO'}")
+    if args.filial_cnpj:
+        logger.info(f"  Filial CNPJ: {args.filial_cnpj} (filtrado)")
+    else:
+        logger.info(f"  Filial CNPJ: TODOS (processando todos os CNPJs encontrados)")
+    logger.info(f"  Modo: {'DRY-RUN (validação)' if args.dry_run else 'PRODUÇÃO (vai criar filiais se não existirem)'}")
+
+    # Carregar Supabase em modo produção
+    supabase_client = None
+    if not args.dry_run:
+        try:
+            load_dotenv()
+            supabase_url = os.getenv('SUPABASE_URL')
+            supabase_key = os.getenv('SUPABASE_KEY')
+
+            if not supabase_url or not supabase_key:
+                logger.error("SUPABASE_URL ou SUPABASE_KEY não configuradas no .env")
+                logger.error("Execute em modo --dry-run para validação sem banco de dados")
+                return 1
+
+            from supabase import create_client
+            supabase_client = create_client(supabase_url, supabase_key)
+            logger.info("✓ Conectado ao Supabase")
+
+        except ImportError:
+            logger.error("Biblioteca 'supabase-py' não instalada")
+            logger.error("Execute: pip install supabase")
+            return 1
+        except Exception as e:
+            logger.error(f"Erro ao conectar ao Supabase: {str(e)}")
+            return 1
 
     importador = ImportadorGETNET(
         arquivo=args.file,
         filial_cnpj=args.filial_cnpj,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        supabase_client=supabase_client
     )
 
     sucesso = importador.processar()

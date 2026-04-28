@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  nexus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus-app
+    restart: unless-stopped
+    ports:
+      - "3400:3400"
+    environment:
+      # Public variables
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3400}
+      NEXT_PUBLIC_ENABLE_ANALYTICS: ${NEXT_PUBLIC_ENABLE_ANALYTICS:-true}
+
+      # Server-side variables (seguras)
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+
+      # Node environment
+      NODE_ENV: production
+    env_file:
+      - .env.production
+    networks:
+      - nexus-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3400/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - nexus-logs:/app/.next
+    labels:
+      app: "nexus"
+      version: "1.0.0"
+      environment: "production"
+
+networks:
+  nexus-network:
+    driver: bridge
+
+volumes:
+  nexus-logs:
+    driver: local

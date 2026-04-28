@@ -1,365 +1,290 @@
-# Nexus: Sistema de Conciliação de Cartões de Crédito
+# NEXUS — Next.js 15 Rewrite
 
-**Status:** Inicialização Completa (24/04/2026)  
-**Versão:** 1.0 MVP  
-**Stack:** FlutterFlow + Supabase (PostgreSQL) + Python
+Sistema de conciliação automática de transações GETNET com títulos TOTVS, desenvolvido com Next.js 15, React 19, TypeScript e Supabase.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│  Nexus: Automação Inteligente de Reconciliação de Cartões  │
-│                                                             │
-│  ✅ Schema PostgreSQL com RLS                              │
-│  ✅ Script de Ingestão (Python/Pandas)                    │
-│  ✅ Algoritmo de Matching Automático                      │
-│  ✅ Documentação Arquitetônica Completa                   │
-│  ✅ Roadmap de Implementação (6-9 semanas)               │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+## Sobre
 
----
+O NEXUS é uma aplicação web progressiva (PWA) que realiza reconciliação inteligente entre:
 
-## 🎯 O Que é Nexus?
+- **GETNET**: Sistema de adquirência de cartões de crédito
+- **TOTVS**: ERP com módulo de contas a receber
 
-Nexus resolve um problema crítico em empresas com múltiplas filiais: **reconciliação manual de cartões de crédito**.
+Utiliza um algoritmo de score matching que leva em conta:
+- Diferença de valores (peso 50%, tolerância ±5%)
+- Diferença de datas (peso 30%, tolerância ±3 dias)
+- Correspondência de NF (peso 20%)
 
-**Sem Nexus:**
-- ❌ Operador abre planilhas Excel
-- ❌ Busca manualmente transações GETNET em compras TOTVS
-- ❌ Digita em formulários
-- ❌ Leva **dias** para reconciliar
-- ❌ Taxa alta de erros
+## Stack Tecnológico
 
-**Com Nexus:**
-- ✅ Ingestão automática GETNET + TOTVS
-- ✅ Matching algoritmo (85%+ automático)
-- ✅ Dashboard claro para exceções
-- ✅ Validação em **minutos**
-- ✅ Rastreamento completo (auditoria)
+### Frontend
+- **Next.js 15.0.0** com App Router
+- **React 19.0.0** com Server/Client Components
+- **TypeScript 5.3.3** com strict mode
+- **TailwindCSS** para estilos
+- **shadcn/ui** para componentes base
+- **React Hook Form** + **Zod** para validação
+- **Zustand** para gerenciamento de estado
+- **Sonner** para notificações
 
----
+### Backend
+- **Node.js** via Vercel Functions
+- **Supabase** para autenticação e banco de dados
+- **PostgreSQL** com RLS (Row Level Security)
 
-## 📦 O Que Você Recebe
+### Deployment
+- **Vercel** (Brasil, São Paulo - sao1)
+- **Supabase Hosting** (PostgreSQL gerenciado)
+
+## Estrutura do Projeto
 
 ```
-Nexus/
-├── database/
-│   └── schema_nexus.sql              [Schema PostgreSQL com RLS]
-├── backend/
-│   ├── import_getnet.py              [Script Python para ingestão]
-│   ├── requirements.txt               [Dependências Python]
-│   └── .env.example                  [Template de variáveis]
-├── data/
-│   └── extrato_getnet_exemplo.csv    [Dado de teste]
-├── docs/
-│   └── 2026-04-24-arquitetura-nexus.md [Documentação completa]
-├── mobile-app/
-│   └── README.md                     [Escopo do PWA]
-└── README.md                         [Este arquivo]
+nexus_nextjs/
+├── app/                       # App Router (Next.js 15)
+│   ├── layout.tsx            # Root layout
+│   ├── page.tsx              # Redirect auth
+│   ├── globals.css           # Estilos globais
+│   ├── (auth)/               # Auth routes
+│   │   ├── login/page.tsx
+│   │   └── signup/page.tsx
+│   ├── (operador)/           # Operador routes (RLS by filial)
+│   │   ├── dashboard/page.tsx
+│   │   └── lancamento/page.tsx
+│   ├── (supervisor)/         # Supervisor routes (all filiais)
+│   │   └── dashboard/page.tsx
+│   └── api/                  # API routes
+│       ├── auth/route.ts
+│       ├── vinculos/route.ts
+│       └── export/route.ts
+├── components/               # React Components
+│   └── ui/                  # shadcn/ui + custom
+│       ├── button.tsx
+│       ├── input.tsx
+│       ├── dialog.tsx
+│       ├── dropdown-menu.tsx
+│       ├── gap-card.tsx
+│       ├── match-suggestion.tsx
+│       └── dashboard-header.tsx
+├── lib/                     # Utilities
+│   ├── types.ts            # Domain types
+│   ├── utils.ts            # Helper functions
+│   ├── api-client.ts       # Fetch wrapper
+│   ├── auth.ts             # Auth helpers
+│   ├── supabase/           # Supabase queries
+│   │   ├── client.ts       # Browser client
+│   │   ├── server.ts       # Service role
+│   │   └── queries.ts      # DB queries
+│   └── store/              # Zustand stores
+│       ├── auth-store.ts
+│       └── dashboard-store.ts
+├── package.json
+├── tsconfig.json
+├── next.config.js
+├── tailwind.config.ts
+├── postcss.config.js
+├── vercel.json
+├── .env.local.example
+└── .env.production.example
 ```
 
----
+## Recursos Principais
 
-## 🚀 Quick Start
+### 1. Dashboard Operador
+- Visualização de gaps (NSU sem título, Título sem NSU)
+- Métricas em tempo real via Supabase subscriptions
+- Novo lançamento (wizard 3-step para criar vinculos)
+- RLS automático por filial
 
-### 1. Setup do Banco de Dados
+### 2. Dashboard Supervisor
+- Visão de todas as filiais
+- Sugestões agrupadas por score (automáticas, pendentes, manual)
+- Confirmar/rejeitar vinculos
+- Exportar para TOTVS em lote
+
+### 3. Autenticação
+- Email + password via Supabase Auth
+- JWT tokens com refresh automático
+- Perfis: operador_filial, supervisor, admin
+- RLS policies por filial_cnpj
+
+### 4. API Routes
+- `/api/auth` — Verificar user + perfil + filiais
+- `/api/vinculos` — CRUD de vinculos
+- `/api/export` — Exportar para TOTVS
+
+## Variáveis de Ambiente
+
+Criar `.env.local` baseado em `.env.local.example`:
+
+```env
+# Supabase (public)
+NEXT_PUBLIC_SUPABASE_URL=https://[project].supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+
+# Supabase (server-side only)
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_ENABLE_ANALYTICS=true
+```
+
+## Instalação
+
+1. **Pré-requisitos**
+   - Node.js 18+ (recomendado 20+)
+   - npm ou yarn
+
+2. **Clone o repositório**
+   ```bash
+   cd nexus_nextjs
+   ```
+
+3. **Instale dependências**
+   ```bash
+   npm install
+   ```
+
+4. **Configure variáveis**
+   ```bash
+   cp .env.local.example .env.local
+   # Edite .env.local com suas credenciais Supabase
+   ```
+
+5. **Execute desenvolvimento**
+   ```bash
+   npm run dev
+   ```
+   Acesse http://localhost:3000
+
+## Desenvolvimento
+
+### Scripts Disponíveis
 
 ```bash
-# Acesse console.supabase.com
-# 1. Crie um novo projeto Nexus
-# 2. Vá em SQL Editor
-# 3. Abra um novo query
-# 4. Cole o conteúdo de database/schema_nexus.sql
-# 5. Execute
-
--- Ou via CLI do Supabase:
-supabase db push --db-url "postgresql://user:password@host:5432/nexus" < database/schema_nexus.sql
+npm run dev           # Desenvolvimento (hot reload)
+npm run build        # Build para produção
+npm start            # Inicia server de produção
+npm run lint         # ESLint check
+npm run type-check   # TypeScript check
+npm run format       # Prettier format
 ```
 
-### 2. Setup do Script Python
+### Database Setup
 
+Ver `../../docs/CHECKLIST_SUPABASE.md` para:
+1. Criar tabelas em PostgreSQL
+2. Configurar RLS policies
+3. Criar funções (calcular_score_matching, exportar_para_totvs)
+4. Criar views (vw_nsu_sem_titulo, vw_titulo_sem_nsu, vw_sugestoes_supervisor)
+
+### Padrões de Código
+
+**Server vs Client Components**
+- Use `'use client'` apenas onde necessário (interatividade, hooks)
+- Prefira Server Components para queries DB, auth checks
+- Server Components com `async` para dados iniciais
+
+**Tipos**
+- Types em `lib/types.ts` (nunca duplicar)
+- Use `type` para tipos, `interface` raramente
+- Strict mode sempre
+
+**Queries**
+- Queries em `lib/supabase/queries.ts`
+- RLS automático: Supabase filtra por `auth.uid()` + `filial_cnpj`
+- Para admin: usar `lib/supabase/server.ts` com service role key
+
+**State Management**
+- Zustand stores em `lib/store/`
+- Prefira stores para state compartilhado (auth, dashboard)
+- Props drilling para state local
+
+**Forms**
+- React Hook Form + Zod (na linha)
+- Validação em tempo real via `watch()`
+- Toast de erro/sucesso via Sonner
+
+## Deployment
+
+### Vercel
+
+1. **Push para GitHub**
+   ```bash
+   git push origin main
+   ```
+
+2. **Connect no Vercel**
+   - Importe repositório
+   - Configure variáveis em Project Settings
+   - Vercel detecta Next.js e faz build automático
+
+3. **Variáveis de Produção**
+   ```
+   NEXT_PUBLIC_SUPABASE_URL
+   NEXT_PUBLIC_SUPABASE_ANON_KEY
+   SUPABASE_SERVICE_ROLE_KEY
+   NEXT_PUBLIC_APP_URL=https://nexus.minusa.com.br
+   ```
+
+4. **Custom Domain**
+   - Configurar em Vercel Settings > Domains
+   - Apontar DNS para Vercel nameservers
+
+## Testes
+
+### Autenticação
 ```bash
-# Clone o repositório
-cd "d:\Projetos Dev\Nexus"
-
-# Crie virtual env
-python -m venv venv
-source venv/bin/activate  # No Windows: venv\Scripts\activate
-
-# Instale dependências
-pip install -r backend/requirements.txt
-
-# Configure variáveis de ambiente
-cp backend/.env.example backend/.env
-# Edite backend/.env com suas credenciais Supabase
+Email: seu@email.com
+Senha: SenhaSegura123!
 ```
 
-### 3. Teste de Ingestão
-
-```bash
-# Teste com dry-run (validação sem enviar)
-python backend/import_getnet.py \
-  --file data/extrato_getnet_exemplo.csv \
-  --filial_id 1 \
-  --dry-run
-
-# Esperado: Relatório mostrando 5 transações válidas
-```
-
-### 4. Leia a Arquitetura
-
-```bash
-# Abra a documentação completa
-open docs/2026-04-24-arquitetura-nexus.md
-```
-
----
-
-## 📋 Estrutura de Dados
-
-### Tabelas Principais
-
-| Tabela | Descrição | Chave |
-|--------|-----------|-------|
-| `filiais` | Dimensão de lojas/filiais | `filial_id` |
-| `transacoes_getnet` | Transações de cartão (adquirente) | `transacao_id` |
-| `titulos_totvs` | Títulos a receber (ERP) | `titulo_id` |
-| `conciliacao_vinculos` | Linking table (N:N) com scoring | `vinculo_id` |
-| `user_filiais` | Mapeamento usuário → filial (RLS) | `user_filial_id` |
-
-### Relacionamentos
-
-```
-filiais (1) 
-  ├─→ (N) transacoes_getnet
-  ├─→ (N) titulos_totvs
-  └─→ (N) conciliacao_vinculos
-
-transacoes_getnet (1) ──┐
-                        ├─→ (N) conciliacao_vinculos
-titulos_totvs (1) ──────┘
-```
-
----
-
-## 🔐 Segurança: Row Level Security (RLS)
-
-**Todos os usuários veem apenas dados de suas filiais**, mesmo que consultassem o banco diretamente.
-
-```sql
--- Exemplo: Usuário de SP só vê filial_id=1
-SELECT * FROM transacoes_getnet;
--- Retorna apenas transações onde filial_id IN (1)
-
--- Tenta acessar outro filial:
-SELECT * FROM transacoes_getnet WHERE filial_id = 2;
--- Retorna: 0 registros (invisibilidade total)
-```
-
----
-
-## 🤖 Algoritmo de Matching
-
-3 fatores determinam o score (0.0 a 1.0):
-
-1. **Valor** (50% do score)
-   - Diferença ≤ 5%: score completo
-   - Diferença > 10%: zero pontos
-
-2. **Data** (30% do score)
-   - Diferença ≤ 3 dias: score completo
-   - Diferença > 7 dias: zero pontos
-
-3. **Tipo/Bandeira** (20% do score)
-   - Bandeira bate: score completo
-   - Bandeira diferente: pontos reduzidos
-
-**Decisão Final:**
-- Score > 0.95 → ✅ **Automático** (conciliado)
-- 0.75 < Score < 0.95 → ⏳ **Validação Manual**
-- Score < 0.75 → ❌ **Ignorar** (possível fraude/erro)
-
----
-
-## 📱 Roadmap (6-9 semanas)
-
-### Semana 1-2: Infraestrutura ✅
-- [x] Schema PostgreSQL
-- [x] RLS Policies
-- [ ] Supabase setup (seu projeto)
-
-### Semana 2-3: Ingestão ✅
-- [x] Script `import_getnet.py`
-- [ ] Integração TOTVS
-- [ ] Agendamento com cron
-
-### Semana 3-4: Matching
-- [ ] Função PL/pgSQL
-- [ ] Trigger automático
-- [ ] Dashboard de métricas
-
-### Semana 4-6: Frontend (FlutterFlow)
-- [ ] Dashboard de conciliação
-- [ ] Página de detalhes
-- [ ] Validação manual
-
-### Semana 6-8: PWA (Leitura OCR)
-- [ ] Camera capture
-- [ ] TensorFlow.js OCR
-- [ ] Verificação em tempo real
-
-### Semana 8-9: Testes & Deploy
-- [ ] Testes de penetração
-- [ ] Performance testing
-- [ ] Produção
-
----
-
-## 💡 Exemplos de Uso
-
-### Ingerir Transações GETNET
-
-```bash
-python backend/import_getnet.py \
-  --file /path/to/extrato_getnet.csv \
-  --filial_id 1
-```
-
-**Retorno:** JSON com transações validadas + relatório
-
-### Consultar Transações via Supabase
-
-```javascript
-// JavaScript/Flutter
-const { data, error } = await supabase
-  .from('transacoes_getnet')
-  .select('*')
-  .eq('filial_id', 1)
-  .eq('status', 'pendente')
-  .order('data_transacao', { ascending: false });
-```
-
-**Nota:** RLS filtra automaticamente por `filial_id` do usuário
-
-### Validar Vínculo Manualmente
-
-```javascript
-// Operador aceita sugestão de matching
-const { data, error } = await supabase
-  .from('conciliacao_vinculos')
-  .update({
-    status: 'confirmado',
-    usuario_validacao: user.email,
-    data_validacao: new Date()
-  })
-  .eq('vinculo_id', 123);
-```
-
----
-
-## 🧪 Testes
-
-```bash
-# Testes unitários do import_getnet.py
-pytest backend/ -v
-
-# Cobertura
-pytest backend/ --cov=backend --cov-report=html
-```
-
----
-
-## 📚 Documentação
-
-| Arquivo | Propósito |
-|---------|-----------|
-| `docs/2026-04-24-arquitetura-nexus.md` | **Guia arquitetônico completo** |
-| `database/schema_nexus.sql` | Schema com comentários |
-| `backend/import_getnet.py` | Script com docstrings |
-| Este README | Overview e quick start |
-
----
-
-## 🤝 Contribuindo
-
-1. **Para adicionar novos campos ao schema:**
-   - Edite `database/schema_nexus.sql`
-   - Crie migration via Supabase CLI
-   - Update `import_getnet.py` se necessário
-
-2. **Para melhorar o matching:**
-   - Edite `calcular_score_matching()` em `database/schema_nexus.sql`
-   - Ajuste pesos (Peso_Valor, Peso_Data, Peso_Tipo)
-   - Test com dados históricos
-
-3. **Para adicionar validações:**
-   - Edite funções `validar_*()` em `backend/import_getnet.py`
-   - Adicione testes em `pytest`
-
----
-
-## ⚠️ Considerações de Segurança
-
-- ✅ RLS ativado em **TODAS** tabelas
-- ✅ Senhas/tokens em `.env` (nunca commit)
-- ✅ Autenticação via Supabase Auth (JWT)
-- ✅ Auditoria em `usuario_validacao` + `data_validacao`
-- ✅ Hash SHA256 para deduplicação (não reversível)
-
----
-
-## 📊 Métricas de Sucesso
-
-Depois de 3 meses em produção:
-
-| Métrica | Meta |
-|---------|------|
-| Matches automáticos | ≥ 85% |
-| Tempo ingestão | < 5 min (10k transações) |
-| Latência query (P95) | < 200ms |
-| Tempo validação exceção | < 10s |
-| Taxa falsos positivos | < 2% |
-
----
-
-## 🆘 Troubleshooting
-
-### "Permission denied" ao acessar tabela
-**Solução:** Verifique RLS policies. Seu user_id está em `user_filiais` com a filial correta?
-
-### Script Python: "ModuleNotFoundError: No module named 'pandas'"
-**Solução:**
-```bash
-pip install -r backend/requirements.txt
-```
-
-### "Hash já visto" - muitas duplicatas
-**Solução:** Verifique se o CSV tem linhas duplicadas. Use `extrato_getnet_exemplo.csv` como referência de formato.
-
----
-
-## 📞 Suporte
-
-- 📖 Documentação: `docs/2026-04-24-arquitetura-nexus.md`
-- 🐛 Issues: Crie em `issues/`
-- 💬 Dúvidas: Abra discussão em `discussions/`
-
----
-
-## 📄 Licença
-
-Propriedade do projeto. Não distribuir sem autorização.
-
----
-
-## ✍️ Versões
-
-| Data | Versão | Mudanças |
-|------|--------|----------|
-| 24/04/2026 | 1.0 | Release inicial |
-
----
-
-**Nexus: Automação Inteligente de Reconciliação**  
-*Desenvolvido com rigor arquitetônico para escalabilidade e segurança.*
+### Fluxo Operador
+1. Login como operador
+2. Ir para Dashboard
+3. Clicar "Novo Lançamento"
+4. Buscar NSU
+5. Selecionar Título
+6. Confirmar vinculo
+
+### Fluxo Supervisor
+1. Login como supervisor
+2. Ver sugestões por score
+3. Confirmar/rejeitar
+4. Exportar selecionados para TOTVS
+
+## Troubleshooting
+
+### Erro: "Missing environment variables"
+- Verificar `.env.local` com credenciais Supabase
+- Executar `npm run dev` novamente
+
+### Erro: "RLS policy violation"
+- Verificar user tem filial em `user_filiais_cnpj`
+- Verificar policies de RLS no Supabase
+
+### Erro: "Cannot find module"
+- Rodar `npm install`
+- Verificar `tsconfig.json` paths aliases
+
+### Slow performance
+- Verificar índices em PostgreSQL
+- Usar `useRealTimeUpdates()` em vez de polling
+- Implementar pagination para grandes datasets
+
+## Documentação Adicional
+
+- `SETUP_GUIDE.md` — Step-by-step setup
+- `../../database/schema_nexus_v3.0.sql` — Schema PostgreSQL
+- `../../docs/FLUXO_NEGOCIO.md` — Fluxo de negócio completo
+- `../../docs/CHECKLIST_SUPABASE.md` — Supabase setup
+
+## Support
+
+Para problemas ou dúvidas:
+1. Verificar este README
+2. Consultar SETUP_GUIDE.md
+3. Abrir issue em GitHub
+
+## License
+
+Copyright © 2026 Minusa Tratorpeças Ltda. Todos os direitos reservados.
