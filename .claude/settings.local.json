@@ -60,7 +60,14 @@
       "Bash(node scripts/insert-test-data.js)",
       "Bash(curl -s \"http://localhost:3400/api/search/nsu?q=000001419\")",
       "Bash(node)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(gh run *)",
+      "Bash(vercel --version)",
+      "Bash(vercel deploy *)",
+      "Bash(vercel --prod)"
     ]
   }
 }

@@ -1,7 +1,6 @@
 {
-  "/api/search/nsu/route": "app/api/search/nsu/route.js",
-  "/page": "app/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/(auth)/login/page": "app/(auth)/login/page.js",
-  "/operador/lancamento/page": "app/operador/lancamento/page.js",
-  "/operador/dashboard/page": "app/operador/dashboard/page.js"
+  "/operador/dashboard/page": "app/operador/dashboard/page.js",
+  "/operador/lancamento/page": "app/operador/lancamento/page.js"
 }

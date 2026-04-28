@@ -56,11 +56,10 @@ export default function OperadorDashboard() {
 
       setUser(userData.user);
 
-      // Fetch metrics
+      // Fetch metrics - NSUs that don't have vinculos
       const { data: nsuList } = await supabase
         .from('transacoes_getnet')
         .select('*')
-        .is('titulo_id', null)
         .limit(10);
 
       setNsuData(nsuList || []);

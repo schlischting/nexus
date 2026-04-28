@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await (supabase as any)
       .from('transacoes_getnet')
-      .select('*')
+      .select('transacao_id, nsu, valor, data_transacao, bandeira')
       .ilike('nsu', `%${q}%`)
       .limit(10);
 
@@ -32,7 +32,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ transacoes: data || [] });
+    // Map database columns to expected format
+    const mapped = (data || []).map((row: any) => ({
+      id: row.transacao_id,
+      nsu: row.nsu,
+      valor: row.valor,
+      data_venda: row.data_transacao,
+      bandeira: row.bandeira,
+    }));
+
+    return NextResponse.json({ transacoes: mapped });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
