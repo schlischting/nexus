@@ -79,3 +79,5 @@ desktop.ini
 .cache
 .gradle
 node_modules
+
+.vercel

@@ -236,3 +236,124 @@ export const subscribeToVinculos = (
     )
     .subscribe();
 };
+
+// Novas queries para o redesign do operador
+export const getNsuPendentes = async (filialCnpj: string) => {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('transacoes_getnet')
+    .select('*')
+    .eq('filial_cnpj', filialCnpj)
+    .eq('status', 'pendente')
+    .order('data_venda', { ascending: false })
+    .limit(100);
+
+  if (error) throw new Error(`Failed to fetch NSU pendentes: ${error.message}`);
+  return data || [];
+};
+
+export const getNsusComSugestao = async (filialCnpj: string) => {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('vinculos')
+    .select(`
+      *,
+      transacoes_getnet:transacao_id(nsu, valor_venda, data_venda, bandeira),
+      titulos_totvs:nf_id(numero_nf, valor_liquido, data_vencimento)
+    `)
+    .eq('filial_cnpj', filialCnpj)
+    .eq('status', 'sugerido')
+    .order('score_confianca', { ascending: true })
+    .limit(100);
+
+  if (error) throw new Error(`Failed to fetch NSU com sugestão: ${error.message}`);
+  return data || [];
+};
+
+export const getTitulosSemNsu = async (filialCnpj: string) => {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('titulos_totvs')
+    .select('*')
+    .eq('filial_cnpj', filialCnpj)
+    .eq('status', 'pendente')
+    .order('data_vencimento', { ascending: true })
+    .limit(100);
+
+  if (error) throw new Error(`Failed to fetch títulos sem NSU: ${error.message}`);
+  return data || [];
+};
+
+export const getUltimasConciliacoes = async (filialCnpj: string) => {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('vinculos')
+    .select(`
+      *,
+      transacoes_getnet:transacao_id(nsu, valor_venda, bandeira),
+      titulos_totvs:nf_id(numero_nf, valor_liquido),
+      users:user_id(email)
+    `)
+    .eq('filial_cnpj', filialCnpj)
+    .eq('status', 'confirmado')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw new Error(`Failed to fetch últimas conciliações: ${error.message}`);
+  return data || [];
+};
+
+export const criarVinculoPendente = async (
+  transacaoId: string,
+  filialCnpj: string,
+  observacoes?: string
+) => {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('vinculos')
+    .insert([
+      {
+        transacao_id: transacaoId,
+        filial_cnpj: filialCnpj,
+        status: 'pendente',
+        observacoes,
+        score_confianca: 0,
+      },
+    ])
+    .select();
+
+  if (error) throw new Error(`Failed to create vínculo pendente: ${error.message}`);
+  return data?.[0];
+};
+
+export const criarVinculoComNf = async (
+  transacaoId: string,
+  nfId: string,
+  filialCnpj: string,
+  score: number,
+  observacoes?: string,
+  modalidade?: string,
+  parcelas?: number
+) => {
+  const supabase = getClient();
+  const status = score > 0.95 ? 'confirmado' : score >= 0.75 ? 'sugerido' : 'rejeitado';
+
+  const { data, error } = await supabase
+    .from('vinculos')
+    .insert([
+      {
+        transacao_id: transacaoId,
+        nf_id: nfId,
+        filial_cnpj: filialCnpj,
+        status,
+        score_confianca: score,
+        observacoes,
+        modalidade,
+        parcelas: parcelas || 1,
+      },
+    ])
+    .select();
+
+  if (error) throw new Error(`Failed to create vínculo com NF: ${error.message}`);
+  return data?.[0];
+};

@@ -137,10 +137,28 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/search/nf/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/search/nf">> = Specific
+  const handler = {} as typeof import("../../app/api/search/nf/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/search/nsu/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/search/nsu">> = Specific
   const handler = {} as typeof import("../../app/api/search/nsu/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/vinculos/calculate-score/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/vinculos/calculate-score">> = Specific
+  const handler = {} as typeof import("../../app/api/vinculos/calculate-score/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

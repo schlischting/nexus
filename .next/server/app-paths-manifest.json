@@ -1,6 +1,5 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
-  "/api/search/nsu/route": "app/api/search/nsu/route.js",
   "/operador/dashboard/page": "app/operador/dashboard/page.js",
   "/(auth)/login/page": "app/(auth)/login/page.js",
   "/operador/lancamento/page": "app/operador/lancamento/page.js"

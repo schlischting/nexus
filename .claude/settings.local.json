@@ -67,7 +67,14 @@
       "Bash(gh run *)",
       "Bash(vercel --version)",
       "Bash(vercel deploy *)",
-      "Bash(vercel --prod)"
+      "Bash(vercel --prod)",
+      "Bash(curl -s \"http://localhost:3400/api/search/nsu?q=166\")",
+      "Bash(curl -s https://nexus-chi-nine.vercel.app/login -I)",
+      "Bash(npm list *)",
+      "Read(//c/Users/rodrigo.MINUSA/**)",
+      "Read(//c/Users/rodrigo.MINUSA/.vercel/**)",
+      "Bash(curl -s https://nexus-vert-three.vercel.app/login -I)",
+      "Bash(curl -s \"https://nexus-vert-three.vercel.app/api/health\")"
     ]
   }
 }
